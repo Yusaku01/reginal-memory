@@ -29,7 +29,8 @@ const Map = React.forwardRef<HTMLDivElement, MapProps>(
     const { toast } = useToast();
     
     const [isDrawing, setIsDrawing] = useState(false);
-    const [drawingTool, setDrawingTool] = useState<'pen' | 'text' | 'eraser' | 'select'>('pen');
+    // 描画ツールの初期値を'map'に設定し、地図操作を優先
+    const [drawingTool, setDrawingTool] = useState<'pen' | 'text' | 'eraser' | 'select' | 'map'>('map');
     const [penColor, setPenColor] = useState('#000000');
     const [penSize, setPenSize] = useState(3);
     const [lastPos, setLastPos] = useState<{ x: number, y: number } | null>(null);
@@ -50,27 +51,76 @@ const Map = React.forwardRef<HTMLDivElement, MapProps>(
     useEffect(() => {
       // We need to import Leaflet dynamically because it depends on the window object
       const initializeMap = async () => {
-        if (mapRef.current && !leafletMapRef.current) {
-          const L = (await import('leaflet')).default;
-          
-          const map = L.map(mapRef.current).setView(initialCenter, initialZoom);
-          
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 19,
-          }).addTo(map);
-          
-          leafletMapRef.current = map;
-          
-          // Save initial state after map is loaded
-          if (canvasRef.current) {
-            const ctx = canvasRef.current.getContext('2d');
-            if (ctx) {
-              const imageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
-              setHistory([imageData]);
-              setHistoryIndex(0);
+        try {
+          if (mapRef.current && !leafletMapRef.current) {
+            console.log('Initializing map...');
+            
+            // Leafletを動的にインポート
+            const L = (await import('leaflet')).default;
+            
+            // マップオプションを設定
+            const mapOptions = {
+              zoomControl: false, // ズームコントロールは後で明示的に追加
+              scrollWheelZoom: true, // ホイールズームを有効化
+              doubleClickZoom: true, // ダブルクリックズームを有効化
+              dragging: true, // ドラッグによる移動を有効化
+              zoomSnap: 0.5, // ズームレベルの単位を小さくして滑らかな拡大縮小を実現
+              zoomDelta: 0.5, // ズームボタンを押したときの変化量
+              wheelPxPerZoomLevel: 100 // ホイールズームの感度を調整
+            };
+            
+            console.log('Creating map with options:', mapOptions);
+            console.log('Initial center:', initialCenter);
+            console.log('Initial zoom:', initialZoom);
+            
+            // 地図を作成し、初期位置を設定
+            const map = L.map(mapRef.current, mapOptions).setView(initialCenter, initialZoom);
+            
+            // タイルレイヤーを追加
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+              maxZoom: 19,
+              minZoom: 1,
+            }).addTo(map);
+            
+            // ズームコントロールを追加 (右下に表示)
+            L.control.zoom({
+              position: 'bottomright',
+              zoomInText: '+',
+              zoomOutText: '-',
+              zoomInTitle: 'ズームイン',
+              zoomOutTitle: 'ズームアウト'
+            }).addTo(map);
+            
+            // ホイールズームを有効化
+            map.scrollWheelZoom.enable();
+            
+            // 地図のズームイベントを監視
+            map.on('zoom', () => {
+              console.log('マップズーム: ' + map.getZoom());
+            });
+            
+            // 地図の移動イベントを監視
+            map.on('move', () => {
+              console.log('マップ移動: ' + map.getCenter());
+            });
+            
+            // マップ参照を保存
+            leafletMapRef.current = map;
+            console.log('Map initialized successfully');
+            
+            // Save initial state after map is loaded
+            if (canvasRef.current) {
+              const ctx = canvasRef.current.getContext('2d');
+              if (ctx) {
+                const imageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+                setHistory([imageData]);
+                setHistoryIndex(0);
+              }
             }
           }
+        } catch (error) {
+          console.error('Failed to initialize map:', error);
         }
       };
       
@@ -115,8 +165,8 @@ const Map = React.forwardRef<HTMLDivElement, MapProps>(
     
     // Canvas drawing handlers
     const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      // 選択モードの場合は描画しない
-      if (drawingTool === 'select' || drawingTool === 'text') return;
+      // 地図操作モードや選択モード、テキストモードの場合は描画しない
+      if (drawingTool === 'map' || drawingTool === 'select' || drawingTool === 'text') return;
       
       if (!canvasRef.current) return;
       
@@ -129,8 +179,8 @@ const Map = React.forwardRef<HTMLDivElement, MapProps>(
     };
     
     const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      // 選択モードの場合は描画しない
-      if (drawingTool === 'select' || drawingTool === 'text') return;
+      // 地図操作モードや選択モード、テキストモードの場合は描画しない
+      if (drawingTool === 'map' || drawingTool === 'select' || drawingTool === 'text') return;
       
       if (!isDrawing || !lastPos || !canvasRef.current) return;
       
@@ -161,8 +211,8 @@ const Map = React.forwardRef<HTMLDivElement, MapProps>(
     };
     
     const endDrawing = () => {
-      // 選択モードの場合は何もしない
-      if (drawingTool === 'select' || drawingTool === 'text') return;
+      // 地図操作モードや選択モード、テキストモードの場合は何もしない
+      if (drawingTool === 'map' || drawingTool === 'select' || drawingTool === 'text') return;
       
       if (isDrawing && canvasRef.current) {
         setIsDrawing(false);
@@ -434,17 +484,81 @@ const Map = React.forwardRef<HTMLDivElement, MapProps>(
         ref={ref}
         {...props}
       >
-        <div ref={mapRef} className="w-full h-full z-1" />
+        <div ref={mapRef} className="w-full h-full z-0" />
         
         <canvas
           ref={canvasRef}
-          className="absolute top-0 left-0 w-full h-full z-10 pointer-events-auto"
+          className={cn(
+            "absolute top-0 left-0 w-full h-full z-10",
+            drawingTool === 'map' ? 'pointer-events-none' : 'pointer-events-auto'
+          )}
+          style={{
+            cursor: drawingTool === 'map' ? 'grab' : 'crosshair'
+          }}
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={endDrawing}
           onMouseLeave={endDrawing}
           onClick={handleCanvasClick}
         />
+        
+        {/* 描画ツール表示 */}
+        <div className="absolute top-4 left-4 z-20 flex flex-row gap-2 bg-white p-2 rounded-md shadow-md">
+          <Button
+            variant={drawingTool === 'map' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDrawingTool('map')}
+            className="text-xs"
+          >
+            地図操作
+          </Button>
+          <Button
+            variant={drawingTool === 'pen' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDrawingTool('pen')}
+            className="text-xs"
+          >
+            ペン
+          </Button>
+          <Button
+            variant={drawingTool === 'eraser' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDrawingTool('eraser')}
+            className="text-xs"
+          >
+            消しゴム
+          </Button>
+          <Button
+            variant={drawingTool === 'text' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDrawingTool('text')}
+            className="text-xs"
+          >
+            テキスト
+          </Button>
+        </div>
+        
+        {/* ズームコントロールのフォールバック用 */}
+        <div className="absolute bottom-16 right-4 z-20 flex flex-col gap-2">
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 rounded-full bg-white shadow-md hover:bg-gray-100"
+            onClick={() => leafletMapRef.current?.zoomIn()}
+            aria-label="ズームイン"
+          >
+            +
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 rounded-full bg-white shadow-md hover:bg-gray-100"
+            onClick={() => leafletMapRef.current?.zoomOut()}
+            aria-label="ズームアウト"
+          >
+            -
+          </Button>
+        </div>
         
         {textPosition && (
           <div className="absolute z-20 p-2 bg-white border rounded-md shadow-md" style={{ 
