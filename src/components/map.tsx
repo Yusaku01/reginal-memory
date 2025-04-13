@@ -10,26 +10,36 @@ import {
   Move,
   Undo,
   Redo,
-  Trash2,
   Save,
-  Share as ShareIcon,
+  Share,
+  Download,
   Pen,
-  Type,
   Eraser,
+  Type,
   Shapes,
   Circle,
   Square,
   Triangle,
-  ArrowRight,
+  ArrowUp,
+  Menu,
+  X,
   ChevronLeft,
   ChevronRight,
+  Trash2
 } from "lucide-react";
+import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+import "leaflet-geosearch/dist/geosearch.css";
+import * as L from 'leaflet';
 
 // Define a proper interface for the Leaflet Map
 interface LeafletMapInterface {
   setView: (center: [number, number], zoom: number) => any;
   remove: () => void;
   addLayer: (layer: any) => any;
+  addControl: (control: any) => any;
+  removeControl: (control: any) => any;
+  on: (event: string, handler: Function) => any;
+  off: (event: string, handler: Function) => any;
   // Add other methods as needed
 }
 
@@ -56,6 +66,7 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
     );
     const [penColor, setPenColor] = useState("#000000");
     const [penSize, setPenSize] = useState(5);
+    const [textSize, setTextSize] = useState(16); // テキストサイズの状態を追加
     const [lastPos, setLastPos] = useState<{ x: number; y: number } | null>(
       null
     );
@@ -69,9 +80,12 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
     const [history, setHistory] = useState<ImageData[]>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
 
+    // レイヤー管理用の状態
+    const [layers, setLayers] = useState<any[]>([]);
+
     // ツールバーの開閉状態 (デフォルトは開いている状態)
     const [isToolbarOpen, setIsToolbarOpen] = useState(true);
-    
+
     // ズームレベルを記憶する状態変数
     const [currentZoom, setCurrentZoom] = useState(initialZoom);
     const [zoomScale, setZoomScale] = useState(1);
@@ -84,6 +98,16 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
       x: number;
       y: number;
     } | null>(null);
+
+    // Helper function to add layer and update history
+    const addLayerAndUpdateHistory = (layer: any) => {
+      const map = leafletMapRef.current;
+      if (!map) return;
+      map.addLayer(layer);
+      const currentLayers = [...layers, layer];
+      setLayers(currentLayers);
+      // [将来のために] setHistory([...history, currentLayers]);
+    };
 
     // Initialize map
     useEffect(() => {
@@ -137,12 +161,12 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
             map.on("zoom", () => {
               const newZoom = map.getZoom();
               console.log("マップズーム: " + newZoom);
-              
+
               // 前回のズームレベルと現在のズームレベルの差を利用してスケールを計算
               const scale = Math.pow(2, initialZoom - newZoom);
               setZoomScale(scale);
               setCurrentZoom(newZoom);
-              
+
               // キャンバス要素のスケールを調整
               if (canvasRef.current) {
                 const canvas = canvasRef.current;
@@ -153,10 +177,10 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
                   canvas.style.transformOrigin = "top left";
                 }
               }
-              
+
               // テキスト要素のスケール調整
-              const textElements = document.querySelectorAll('.map-text');
-              textElements.forEach(textEl => {
+              const textElements = document.querySelectorAll(".map-text");
+              textElements.forEach((textEl) => {
                 const el = textEl as HTMLElement;
                 el.style.transform = `scale(${scale})`;
                 el.style.transformOrigin = "top left";
@@ -433,7 +457,7 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
       if (!ctx) return;
 
       // ズームスケールを考慮したフォントサイズと位置の調整
-      ctx.font = `${penSize * 5}px sans-serif`;
+      ctx.font = `${textSize}px sans-serif`;
       ctx.fillStyle = penColor;
       ctx.fillText(textInput, textPosition.x, textPosition.y);
 
@@ -606,8 +630,7 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
 
         toast({
           title: "保存完了",
-          description:
-            "地図と描画内容が保存されました（ツールバーとズームボタンは除外）",
+          description: "",
         });
       } catch (error) {
         console.error("画像の保存に失敗しました:", error);
@@ -660,7 +683,7 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
           scale: 2,
           backgroundColor: null,
           ignoreElements: (element: Element) => {
-            // 処理中インジケーターを除外
+            // 処理中インジケーターを除外する
             if (element === processingIndicator) return true;
 
             // ツールバー・UIコントロールを除外する（地図と描画内容は維持）
@@ -760,6 +783,59 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
       setTimeout(() => URL.revokeObjectURL(url), 100);
     };
 
+    const SearchControl = ({ map }: { map: LeafletMapInterface }) => {
+      useEffect(() => {
+        // 型アサーションを使用して型エラーを解消
+        const provider = new (OpenStreetMapProvider as any)();
+        const searchControl = new (GeoSearchControl as any)({
+          provider,
+          style: "bar",
+          showMarker: true,
+          autoClose: true,
+          retainZoomLevel: false,
+          animateZoom: true,
+        });
+
+        map.addControl(searchControl);
+        return () => map.removeControl(searchControl);
+      }, [map]);
+
+      return null;
+    };
+
+    // テキストツール用のMapイベント追加
+    useEffect(() => {
+      if (!leafletMapRef.current) return;
+      const map = leafletMapRef.current;
+
+      // クリックイベントハンドラー
+      const handleMapClick = (e: any) => {
+        if (drawingTool === 'text') {
+          const text = prompt("テキストを入力してください:");
+          if (text && text.trim() !== "") {
+            // divIconを作成してテキストを表示
+            const textIcon = L.divIcon({
+              className: 'custom-text-icon',
+              html: `<div style="font-size: ${textSize || penSize}px; color: ${penColor}; white-space: nowrap;">${text}</div>`,
+              iconSize: undefined,
+              iconAnchor: [0, (textSize || penSize) / 2]
+            });
+
+            const marker = L.marker(e.latlng, { icon: textIcon });
+            addLayerAndUpdateHistory(marker);
+          }
+        }
+      };
+
+      // イベントリスナーを追加
+      map.on('click', handleMapClick);
+
+      // クリーンアップ
+      return () => {
+        map.off('click', handleMapClick);
+      };
+    }, [drawingTool, penColor, penSize, textSize, layers]);
+
     return (
       <div
         className={cn("overflow-hidden relative w-full h-full", className)}
@@ -767,9 +843,10 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
         {...props}
       >
         <div id="map-container" ref={mapRef} className="w-full h-full z-1" />
+        {leafletMapRef.current && <SearchControl map={leafletMapRef.current} />}
 
         <div
-          className="absolute top-0 left-0 w-full h-full z-10"
+          className="absolute top-0 left-0 z-10 w-full h-full"
           style={{
             pointerEvents: drawingTool === "map" ? "none" : "auto",
           }}
@@ -912,7 +989,7 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
                     variant={drawingShape === "arrow" ? "default" : "outline"}
                     onClick={() => setDrawingShape("arrow")}
                   >
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowUp className="w-4 h-4" />
                   </Button>
                 </div>
               )}
@@ -937,6 +1014,18 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
                   max="20"
                   value={penSize}
                   onChange={(e) => setPenSize(parseInt(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-sm">テキストサイズ: {textSize}</label>
+                <input
+                  type="range"
+                  min="8"
+                  max="32"
+                  value={textSize}
+                  onChange={(e) => setTextSize(parseInt(e.target.value))}
                   className="w-full"
                 />
               </div>
@@ -976,7 +1065,7 @@ const MapClient = React.forwardRef<HTMLDivElement, MapProps>(
                   )}
                 </Button>
                 <Button size="sm" variant="outline" onClick={shareImage}>
-                  <ShareIcon className="mr-1 w-4 h-4" /> 共有
+                  <Share className="mr-1 w-4 h-4" /> 共有
                 </Button>
               </div>
             </>
